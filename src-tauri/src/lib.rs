@@ -1,3 +1,4 @@
+mod launcher;
 mod parser;
 mod session;
 mod watcher;
@@ -20,10 +21,15 @@ fn get_sessions(
 
 /// 環境に応じてアプリケーションを起動（ジャンプ機能）
 #[tauri::command]
-fn open_in_environment(session_id: String) -> Result<(), String> {
-    // Phase 2 で実装予定
-    log::info!("open_in_environment called for session: {}", session_id);
-    Ok(())
+fn open_in_environment(
+    session_id: String,
+    store: tauri::State<'_, watcher::SessionStore>,
+) -> Result<(), String> {
+    let sessions = store.lock().map_err(|e| e.to_string())?;
+    let session = sessions
+        .get(&session_id)
+        .ok_or_else(|| format!("Session not found: {}", session_id))?;
+    launcher::open_session(session)
 }
 
 /// アプリケーションの起動
