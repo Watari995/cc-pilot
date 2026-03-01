@@ -1,0 +1,290 @@
+.container {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.filterBar {
+  display: flex;
+  gap: 2px;
+  padding: var(--space-sm) var(--space-lg);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+
+.filterButton {
+  padding: var(--space-xs) var(--space-sm);
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: var(--radius-badge);
+  transition: all 0.15s ease;
+}
+
+.filterButton:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.filterButtonActive {
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+
+/* ── List ── */
+.list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-sm) var(--space-lg);
+}
+
+.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-tertiary);
+  font-size: 13px;
+}
+
+/* ── Card ── */
+.card {
+  background: var(--bg-secondary);
+  border-radius: var(--radius-card);
+  margin-bottom: var(--space-sm);
+  overflow: hidden;
+}
+
+.cardRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.cardRow:hover {
+  background: var(--bg-elevated);
+}
+
+/* ── Env badge ── */
+.envBadge {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+}
+
+/* ── Card main content ── */
+.cardMain {
+  flex: 1;
+  min-width: 0;
+}
+
+.cardTitleRow {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-sm);
+}
+
+.projectName {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.branchName {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.title {
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 2px;
+}
+
+/* ── Card meta (status + duration) ── */
+.cardMeta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  flex-shrink: 0;
+}
+
+.statusDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 5px;
+}
+
+.statusLabel {
+  font-size: 12px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.metaItem {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+/* ── Buttons ── */
+.expandBtn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  font-size: 10px;
+  cursor: pointer;
+  border-radius: var(--radius-badge);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+  transform: rotate(-90deg);
+}
+
+.expandBtnOpen {
+  transform: rotate(0deg);
+}
+
+.expandBtn:hover {
+  color: var(--text-primary);
+}
+
+/* ── Detail (expanded) ── */
+.detail {
+  padding: 0 var(--space-lg) var(--space-lg);
+  padding-left: calc(var(--space-lg) + 32px + var(--space-md));
+  border-top: 1px solid var(--border);
+}
+
+.metricsRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-lg);
+  padding-top: var(--space-md);
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 120px;
+}
+
+.metricLabel {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  color: var(--text-tertiary);
+}
+
+.metricValue {
+  font-size: 13px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+/* ── Tools ── */
+.toolsSection {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  padding-top: var(--space-md);
+}
+
+.toolChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.toolChip {
+  padding: 2px var(--space-sm);
+  background: var(--bg-elevated);
+  border-radius: var(--radius-chip);
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+
+/* ── Approval banner ── */
+.approvalBanner {
+  background: rgba(245, 158, 11, 0.08);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: var(--radius-card);
+  padding: var(--space-md);
+  margin-top: var(--space-md);
+}
+
+.approvalTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: #f59e0b;
+  margin-bottom: var(--space-xs);
+}
+
+.approvalBody {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+.approvalHint {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: var(--space-xs);
+}
+
+/* ── Jump button (inside detail) ── */
+.jumpButton {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: var(--accent-dim);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-button);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  margin-top: var(--space-md);
+}
+
+.jumpButton:hover {
+  background: var(--accent);
+  color: #fff;
+}

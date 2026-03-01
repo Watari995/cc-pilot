@@ -1,0 +1,150 @@
+.detail {
+  flex: 1;
+  height: 100%;
+  overflow-y: auto;
+  padding: var(--space-xl);
+}
+
+.empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-tertiary);
+  font-size: 14px;
+}
+
+.header {
+  margin-bottom: var(--space-xl);
+}
+
+.projectName {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--space-xs);
+}
+
+.titleRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-xs);
+}
+
+.sessionTitle {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.branch {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+.statusBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-chip);
+  font-size: 12px;
+  font-weight: 500;
+  margin-top: var(--space-sm);
+}
+
+.statusDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+
+.section {
+  margin-bottom: var(--space-xl);
+}
+
+.sectionTitle {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-tertiary);
+  margin-bottom: var(--space-sm);
+}
+
+.metricsGrid {
+  display: grid;
+  grid-template-columns: 140px 1fr;
+  gap: var(--space-sm) var(--space-lg);
+}
+
+.metricLabel {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.metricValue {
+  font-size: 13px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+.toolChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+}
+
+.toolChip {
+  padding: var(--space-xs) var(--space-md);
+  background: var(--bg-elevated);
+  border-radius: var(--radius-chip);
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+}
+
+.jumpButton {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  background: var(--accent-dim);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-button);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  width: 100%;
+  justify-content: center;
+}
+
+.jumpButton:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.approvalBanner {
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.3);
+  border-radius: var(--radius-card);
+  padding: var(--space-md);
+  margin-bottom: var(--space-xl);
+}
+
+.approvalTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: #f59e0b;
+  margin-bottom: var(--space-sm);
+}
+
+.approvalDetail {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
