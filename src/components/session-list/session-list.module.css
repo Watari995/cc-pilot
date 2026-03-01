@@ -24,6 +24,9 @@
   cursor: pointer;
   border-radius: var(--radius-badge);
   transition: all 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .filterButton:hover {

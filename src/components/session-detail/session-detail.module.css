@@ -18,11 +18,17 @@
   margin-bottom: var(--space-xl);
 }
 
+.headerTop {
+  display: flex;
+  align-items: center;
+  gap: var(--space-md);
+  margin-bottom: var(--space-xs);
+}
+
 .projectName {
   font-size: 20px;
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: var(--space-xs);
 }
 
 .titleRow {

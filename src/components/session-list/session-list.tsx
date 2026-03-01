@@ -7,21 +7,20 @@ import {
   formatTokens,
 } from "../../lib/formatters";
 import {
-  ENVIRONMENT_LABELS,
   STATUS_COLORS,
   type Environment,
   type Session,
   type SessionStatus,
 } from "../../lib/types";
+import { EnvironmentIcon } from "../common/environment-icon";
 import styles from "./session-list.module.css";
 
-const FILTER_OPTIONS: Array<{ label: string; value: Environment | "all" }> = [
-  { label: "All", value: "all" },
-  { label: "T", value: "terminal" },
-  { label: "V", value: "vscode" },
-  { label: "C", value: "cursor" },
-  { label: "D", value: "desktop" },
-  { label: "W", value: "web" },
+const ENVIRONMENT_FILTERS: Array<Environment> = [
+  "terminal",
+  "vscode",
+  "cursor",
+  "desktop",
+  "web",
 ];
 
 const STATUS_LABELS: Record<SessionStatus, string> = {
@@ -30,14 +29,6 @@ const STATUS_LABELS: Record<SessionStatus, string> = {
   idle: "Idle",
   done: "Done",
   error: "Error",
-};
-
-const ENVIRONMENT_JUMP_LABELS: Record<string, string> = {
-  terminal: "Open in Terminal",
-  vscode: "Open in VS Code",
-  cursor: "Open in Cursor",
-  desktop: "Open in Claude Desktop",
-  web: "Open in Browser",
 };
 
 export function SessionList() {
@@ -58,15 +49,23 @@ export function SessionList() {
   return (
     <div className={styles.container}>
       <div className={styles.filterBar}>
-        {FILTER_OPTIONS.map((opt) => (
+        <button
+          className={`${styles.filterButton} ${
+            environmentFilter === "all" ? styles.filterButtonActive : ""
+          }`}
+          onClick={() => setEnvironmentFilter("all")}
+        >
+          All
+        </button>
+        {ENVIRONMENT_FILTERS.map((env) => (
           <button
-            key={opt.value}
+            key={env}
             className={`${styles.filterButton} ${
-              environmentFilter === opt.value ? styles.filterButtonActive : ""
+              environmentFilter === env ? styles.filterButtonActive : ""
             }`}
-            onClick={() => setEnvironmentFilter(opt.value)}
+            onClick={() => setEnvironmentFilter(env)}
           >
-            {opt.label}
+            <EnvironmentIcon environment={env} size={20} />
           </button>
         ))}
       </div>
@@ -111,12 +110,7 @@ function SessionCard({
     <div className={styles.card}>
       {/* Collapsed row - always visible */}
       <div className={styles.cardRow} onClick={handleJump}>
-        <span
-          className={styles.envBadge}
-          style={{ backgroundColor: `${statusColor}20`, color: statusColor }}
-        >
-          {ENVIRONMENT_LABELS[session.environment]}
-        </span>
+        <EnvironmentIcon environment={session.environment} size={32} />
 
         <div className={styles.cardMain}>
           <div className={styles.cardTitleRow}>

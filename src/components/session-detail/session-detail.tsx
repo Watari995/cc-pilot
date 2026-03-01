@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { useSessionStore } from "../../hooks/use-session-store";
 import { formatDuration, formatTimeAgo, formatTokens } from "../../lib/formatters";
 import { STATUS_COLORS, type SessionStatus } from "../../lib/types";
+import { EnvironmentIcon } from "../common/environment-icon";
 import styles from "./session-detail.module.css";
 
 const STATUS_LABELS: Record<SessionStatus, string> = {
@@ -52,7 +53,10 @@ export function SessionDetail() {
     <div className={styles.detail}>
       {/* Header */}
       <div className={styles.header}>
-        <div className={styles.projectName}>{session.projectName}</div>
+        <div className={styles.headerTop}>
+          <EnvironmentIcon environment={session.environment} size={36} />
+          <div className={styles.projectName}>{session.projectName}</div>
+        </div>
         <div className={styles.titleRow}>
           <span className={styles.sessionTitle}>{displayTitle}</span>
         </div>
