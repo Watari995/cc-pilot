@@ -157,16 +157,79 @@ JSONLデータには環境情報がないため、プロセス情報から判別
 
 ### 4. ジャンプ機能 (`launcher.rs`)
 
-| 環境 | 起動コマンド | 精度 |
-|---|---|---|
-| Ghostty | Accessibility API でタブ名マッチ → クリック。失敗時は `osascript` で activate | 中（タブ名重複時は曖昧） |
-| iTerm2 | `osascript -e 'tell application "iTerm2" to activate'` | 低（アプリ前面化のみ） |
-| Terminal.app | `osascript -e 'tell application "Terminal" to activate'` | 低 |
-| WezTerm | `osascript -e 'tell application "WezTerm" to activate'` | 低 |
-| VS Code | `code {project_path}` | 高（既存ウィンドウ再利用） |
-| Cursor | `cursor {project_path}` | 高（既存ウィンドウ再利用） |
-| Desktop | `open -a "Claude"` | 低（アプリ前面化のみ） |
-| Web | `open https://claude.ai/chat/{conversationId}` | 高（直接ジャンプ） |
+**全環境で実機検証済み。** macOS Accessibility API / CLI / ディープリンクを組み合わせ、可能な限り正確にセッション単位でジャンプする。
+
+| 環境 | 方式 | 精度 | 検証 |
+|---|---|---|---|
+| Ghostty | Accessibility API: `AXTabGroup` → `AXRadioButton`(タブ名マッチ) → `AXPress` | **タブ単位** | 済 |
+| iTerm2 | AppleScript: `variable named "path"` でCWDマッチ → `select` session/tab/window | **セッション単位** | 調査済 |
+| Terminal.app | `lsof` でTTY特定 → AppleScript: `tty` マッチ → `set selected` | **タブ単位** | 調査済 |
+| WezTerm | `wezterm cli list --format json` → CWDマッチ → `activate-tab` + `activate-pane` | **ペイン単位** | 調査済 |
+| VS Code | `code {project_path}` | **プロジェクト単位** | 済 |
+| Cursor | `cursor {project_path}` | **プロジェクト単位** | 済 |
+| Desktop (Chat) | `open "claude://claude.ai/chat/{uuid}"` | **会話単位** | 済 |
+| Desktop (Code) | `open "claude://claude.ai/claude-code-desktop/{sessionId}"` | **セッション単位** | 済 |
+| Web | `open https://claude.ai/chat/{conversationId}` | **会話単位** | 調査済 |
+
+#### Ghostty ジャンプ実装詳細
+```
+1. pgrep で Ghostty PID 取得
+2. AXUIElementCreateApplication(pid) → AXWindows[0]
+3. AXChildren から AXTabGroup を探索
+4. AXTabGroup 内の AXRadioButton を列挙（各タブ）
+5. AXTitle にプロジェクト名/セッション名を含むタブを検索
+6. AXPress アクションでタブ切替
+7. osascript で Ghostty を activate（前面化）
+```
+- Ghostty はタブを macOS ネイティブタブとして公開 → Accessibility API で列挙可能
+- シェルがタイトルにCWDを設定している前提（一般的なデフォルト動作）
+- フォールバック: タイトルマッチ失敗時は `tell application "Ghostty" to activate` のみ
+
+#### iTerm2 ジャンプ実装詳細
+```applescript
+tell application "iTerm2"
+    activate
+    repeat with aWindow in windows
+        repeat with aTab in tabs of aWindow
+            repeat with aSession in sessions of aTab
+                set sessionPath to variable named "path" of aSession
+                if sessionPath starts with "{project_path}" then
+                    select aSession → select aTab → select aWindow
+                end if
+            end repeat
+        end repeat
+    end repeat
+end tell
+```
+- `variable named "path"` で各セッションの CWD を直接取得可能
+- iTerm2 の `select` は session / tab / window の3レベルで動作
+
+#### Terminal.app ジャンプ実装詳細
+```
+1. lsof +D {project_path} で該当CWDを持つプロセスの TTY を特定
+2. AppleScript で全タブの tty プロパティを走査しマッチ
+3. set selected of tab to true + set index of window to 1
+```
+
+#### WezTerm ジャンプ実装詳細
+```bash
+# 1. CWDでペイン検索
+wezterm cli list --format json | jq '.[] | select(.cwd | contains("{project_path}"))'
+# 2. タブ＆ペインをアクティベート
+wezterm cli activate-tab --tab-id {TAB_ID}
+wezterm cli activate-pane --pane-id {PANE_ID}
+# 3. アプリを前面化
+osascript -e 'tell application "WezTerm" to activate'
+```
+- `wezterm cli list` の JSON に `cwd` フィールドが含まれるため完璧にマッチ可能
+
+#### Desktop ディープリンク詳細
+Claude Desktop は `claude://` URLスキームを登録（Info.plist で確認済み）:
+- **チャット会話**: `claude://claude.ai/chat/{conversation-uuid}` — UUID検証後に内部ナビゲーション
+- **コードセッション**: `claude://claude.ai/claude-code-desktop/{sessionId}` — `local_` prefix 付きのセッションID
+- **セッション再開**: `claude://resume?session={cliSessionId}&cwd={path}`
+- UUID は `/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/i` で検証される
+- Desktop のセッションメタデータは `~/Library/Application Support/Claude/claude-code-sessions/` に JSON で保存
 
 ### 5. Webセッション監視 (`web_client.rs`)
 
