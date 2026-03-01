@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useSessionStore } from "../../hooks/use-session-store";
 import {
@@ -8,20 +8,11 @@ import {
 } from "../../lib/formatters";
 import {
   STATUS_COLORS,
-  type Environment,
   type Session,
   type SessionStatus,
 } from "../../lib/types";
 import { EnvironmentIcon } from "../common/environment-icon";
 import styles from "./session-list.module.css";
-
-const ENVIRONMENT_FILTERS: Array<Environment> = [
-  "terminal",
-  "vscode",
-  "cursor",
-  "desktop",
-  "web",
-];
 
 const STATUS_LABELS: Record<SessionStatus, string> = {
   working: "Working",
@@ -32,9 +23,16 @@ const STATUS_LABELS: Record<SessionStatus, string> = {
 };
 
 export function SessionList() {
-  const { sessions, environmentFilter, setEnvironmentFilter } =
-    useSessionStore();
+  const {
+    sessions,
+    environmentFilter,
+    setEnvironmentFilter,
+    filterOrder,
+    setFilterOrder,
+  } = useSessionStore();
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
+  const filterRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   const sessionList = Array.from(sessions.values())
     .filter(
@@ -45,6 +43,41 @@ export function SessionList() {
   const toggleExpand = (id: string) => {
     setExpandedId((prev) => (prev === id ? null : id));
   };
+
+  const handlePointerDown = useCallback(
+    (index: number, e: React.PointerEvent) => {
+      e.preventDefault();
+      setDraggingIndex(index);
+      (e.target as HTMLElement).setPointerCapture(e.pointerId);
+    },
+    [],
+  );
+
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (draggingIndex === null) return;
+
+      const targetEl = document.elementFromPoint(e.clientX, e.clientY);
+      if (!targetEl) return;
+
+      const overIndex = filterRefs.current.findIndex(
+        (ref) => ref && (ref === targetEl || ref.contains(targetEl)),
+      );
+
+      if (overIndex !== -1 && overIndex !== draggingIndex) {
+        const newOrder = [...filterOrder];
+        const [removed] = newOrder.splice(draggingIndex, 1);
+        newOrder.splice(overIndex, 0, removed);
+        setFilterOrder(newOrder);
+        setDraggingIndex(overIndex);
+      }
+    },
+    [draggingIndex, filterOrder, setFilterOrder],
+  );
+
+  const handlePointerUp = useCallback(() => {
+    setDraggingIndex(null);
+  }, []);
 
   return (
     <div className={styles.container}>
@@ -57,13 +90,19 @@ export function SessionList() {
         >
           All
         </button>
-        {ENVIRONMENT_FILTERS.map((env) => (
+        {filterOrder.map((env, index) => (
           <button
             key={env}
+            ref={(el) => { filterRefs.current[index] = el; }}
             className={`${styles.filterButton} ${
               environmentFilter === env ? styles.filterButtonActive : ""
-            }`}
-            onClick={() => setEnvironmentFilter(env)}
+            } ${draggingIndex === index ? styles.filterButtonDragging : ""}`}
+            onClick={() => {
+              if (draggingIndex === null) setEnvironmentFilter(env);
+            }}
+            onPointerDown={(e) => handlePointerDown(index, e)}
+            onPointerMove={handlePointerMove}
+            onPointerUp={handlePointerUp}
           >
             <EnvironmentIcon environment={env} size={20} />
           </button>

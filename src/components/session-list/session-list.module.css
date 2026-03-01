@@ -27,6 +27,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  cursor: grab;
+}
+
+.filterButton:active {
+  cursor: grabbing;
 }
 
 .filterButton:hover {
@@ -37,6 +42,11 @@
 .filterButtonActive {
   color: var(--accent);
   background: var(--accent-dim);
+}
+
+.filterButtonDragging {
+  opacity: 0.5;
+  transform: scale(1.1);
 }
 
 /* ── List ── */
