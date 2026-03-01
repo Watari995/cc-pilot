@@ -4,13 +4,13 @@
 
 ### 1.1 プロダクト定義
 
-**cc-pilot** は、Claude Codeの全セッション（CLI / VS Code拡張 / Cursor拡張 / Desktop）を1つのUIでリアルタイム監視し、タップで各環境にジャンプできるmacOSデスクトップアプリ。
+**cc-pilot** は、Claude Codeの全セッション（CLI / VS Code拡張 / Cursor拡張 / Desktop / Web）を1つのUIでリアルタイム監視し、タップで各環境にジャンプできるmacOSデスクトップアプリ。
 
 ### 1.2 解決する課題
 
 - 複数のClaude Codeセッションを同時に走らせると、どのセッションが何をしているか把握しづらい
 - セッションが承認待ち（Needs approval）になっても気づけない
-- ターミナル、VS Code、Cursor、Desktopを行き来する手間
+- ターミナル、VS Code、Cursor、Desktop、Webを行き来する手間
 
 ### 1.3 ターゲットユーザー
 
@@ -21,8 +21,7 @@ Claude Codeを日常的に使う開発者。特に複数セッションを並行
 | 項目         | 値                             |
 | ------------ | ------------------------------ |
 | パッケージ名 | `cc-pilot`                     |
-| リポジトリ   | `github.com/{user}/cc-pilot`   |
-| コマンド     | `npx cc-pilot`                 |
+| リポジトリ   | `github.com/Watari995/cc-pilot` |
 | ライセンス   | MIT                            |
 | 対象OS       | macOS（Apple Silicon + Intel） |
 
@@ -36,7 +35,7 @@ Claude Codeを日常的に使う開発者。特に複数セッションを並行
 | -------------- | --------------------------- | -------------------------------- |
 | フレームワーク | Tauri v2                    | ネイティブアプリ基盤             |
 | フロントエンド | React 19 + TypeScript 5     | UI描画                           |
-| スタイリング   | CSS Modules or Tailwind CSS | コンポーネントスタイル           |
+| スタイリング   | CSS Modules                 | コンポーネントスタイル           |
 | 状態管理       | Zustand                     | 軽量グローバルステート           |
 | バックエンド   | Rust                        | ファイル監視・プロセス管理・通知 |
 | ビルドツール   | Vite                        | フロントエンドビルド             |
@@ -47,6 +46,7 @@ Claude Codeを日常的に使う開発者。特に複数セッションを並行
 | --------------------------- | ------------------------------------------ |
 | `notify` (v6+)              | `~/.claude/projects/` のファイル変更監視   |
 | `serde` / `serde_json`      | セッションJSONパース                       |
+| `reqwest`                   | claude.ai API クライアント（Web版監視）    |
 | `tauri` v2                  | アプリフレームワーク                       |
 | `tauri-plugin-notification` | macOS通知                                  |
 | `tauri-plugin-shell`        | 外部コマンド実行 (osascript, code, cursor) |
@@ -56,7 +56,6 @@ Claude Codeを日常的に使う開発者。特に複数セッションを並行
 
 - `.app` バンドル（macOS）
 - `.dmg` インストーラー
-- npm パッケージ（`npx cc-pilot` 経由で起動）
 
 ---
 
@@ -65,34 +64,57 @@ Claude Codeを日常的に使う開発者。特に複数セッションを並行
 ### 3.1 全体構成
 
 ```
-┌─────────────────────────────────────────────┐
-│                  cc-pilot                    │
-│                                             │
-│  ┌─────────────┐     ┌──────────────────┐  │
-│  │   Rust       │     │   React (WebView)│  │
-│  │   Backend    │◄───►│   Frontend       │  │
-│  │              │ IPC │                  │  │
-│  │ • FileWatcher│     │ • SessionList    │  │
-│  │ • Launcher   │     │ • SessionDetail  │  │
-│  │ • Notifier   │     │ • Settings       │  │
-│  │ • TrayIcon   │     │ • StatusBar      │  │
-│  └──────┬───────┘     └──────────────────┘  │
-│         │                                    │
-│         ▼                                    │
-│  ~/.claude/projects/  (read-only監視)         │
-└─────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────┐
+│                    cc-pilot                       │
+│                                                  │
+│  ┌──────────────────┐     ┌──────────────────┐  │
+│  │   Rust Backend    │     │ React (WebView)  │  │
+│  │                   │◄───►│ Frontend         │  │
+│  │                   │ IPC │                  │  │
+│  │ • FileWatcher     │     │ • SessionList    │  │
+│  │ • ProcessDetector │     │ • SessionDetail  │  │
+│  │ • WebClient       │     │ • Settings       │  │
+│  │ • Launcher        │     │ • StatusBar      │  │
+│  │ • Notifier        │     │                  │  │
+│  │ • TrayIcon        │     │                  │  │
+│  └───────┬───────────┘     └──────────────────┘  │
+│          │                                        │
+│    ┌─────┴──────┐                                │
+│    │            │                                │
+│    ▼            ▼                                │
+│  ~/.claude/   claude.ai API                      │
+│  projects/    (reqwest polling)                   │
+└──────────────────────────────────────────────────┘
 ```
 
 ### 3.2 データフロー
 
+**ローカルセッション（CLI / Cursor / VS Code / Desktop）:**
 ```
 ~/.claude/projects/**/*.jsonl
         │
         ▼ (notify crate: ファイル変更検知)
    Rust FileWatcher
         │
-        ▼ (JSONパース + 差分計算)
+        ▼ (JSONパース + プロセス情報で環境判別)
    SessionState (Rust構造体)
+        │
+        ▼ (Tauri IPC: emit event)
+   React Frontend (Zustand store)
+        │
+        ▼ (React re-render)
+   UI更新
+```
+
+**Webセッション（claude.ai）:**
+```
+claude.ai /api/organizations/{orgId}/chat_conversations
+        │
+        ▼ (reqwest: 30秒間隔ポーリング)
+   Rust WebClient
+        │
+        ▼ (Session構造体に変換, environment: "web")
+   SessionState に統合
         │
         ▼ (Tauri IPC: emit event)
    React Frontend (Zustand store)
@@ -135,7 +157,7 @@ cc-pilot/
 │   ├── lib/
 │   │   ├── types.ts              # TypeScript型定義
 │   │   ├── constants.ts          # 定数
-│   │   └── formatters.ts         # 時間・コスト表示フォーマッタ
+│   │   └── formatters.ts         # 時間表示フォーマッタ
 │   └── styles/
 │       ├── global.css            # CSS変数・グローバルスタイル
 │       └── theme.css             # アクセントカラー定義
@@ -151,6 +173,8 @@ cc-pilot/
 │   │   ├── watcher.rs             # ファイル監視ロジック
 │   │   ├── parser.rs              # セッションJSONパーサー
 │   │   ├── session.rs             # セッションデータ構造体
+│   │   ├── process_detector.rs    # プロセス情報から環境判別
+│   │   ├── web_client.rs          # claude.ai API クライアント
 │   │   ├── launcher.rs            # 外部アプリ起動
 │   │   ├── notifier.rs            # macOS通知
 │   │   └── tray.rs                # メニューバーアイコン
@@ -163,95 +187,156 @@ cc-pilot/
 │
 ├── assets/
 │   └── icons/                     # アイコンカラーバリエーション
-│       ├── orange.png
-│       ├── cyan.png
-│       ├── purple.png
-│       ├── green.png
-│       ├── blue.png
-│       ├── pink.png
-│       └── red.png
-│
-├── docs/
-│   ├── PRD.md
-│   └── SPEC.md                    # この仕様書
 │
 ├── CLAUDE.md                      # Claude Code用プロジェクトガイド
+├── cc-pilot-spec.md               # この仕様書
 ├── package.json
 ├── tsconfig.json
 ├── vite.config.ts
-├── index.html
-└── README.md
+└── index.html
 ```
 
 ---
 
 ## 4. データソース
 
-### 4.1 監視対象
+### 4.1 ローカルセッション（JSONL監視）
 
 Claude Codeのセッションデータは `~/.claude/projects/` 配下に保存される。
 
 ```
 ~/.claude/
 ├── projects/
-│   ├── {project-path-hash}/
-│   │   ├── {session-id}.jsonl     # セッションログ（JSONL形式）
+│   ├── -Users-username-project-name/  # パスのハイフン区切り表現
+│   │   ├── {session-id}.jsonl          # セッションログ（JSONL形式）
 │   │   └── ...
 │   └── ...
-├── settings.json                   # Claude Code設定
 └── ...
 ```
 
-### 4.2 セッションファイル構造
+### 4.2 セッションファイル構造（実機確認済み）
 
-> ⚠️ **要確認**: 実機で `~/.claude/projects/` の実際のファイル内容を確認し、以下のフィールドマッピングを検証する必要がある。
+各行がJSON objectのJSONL形式。エントリのトップレベル `type` フィールドで種別を判定:
 
-**想定されるJSONLフィールド:**
+| type | 説明 | 出現頻度 |
+|---|---|---|
+| `user` | ユーザーメッセージ | 多 |
+| `assistant` | アシスタント応答（model, usage含む） | 多 |
+| `progress` | フック実行・エージェント進捗 | 多 |
+| `system` | コンパクション境界等 | 少 |
+| `queue-operation` | キュー操作（enqueue/dequeue） | 少 |
+| `file-history-snapshot` | ファイル履歴スナップショット | 少 |
+
+**共通フィールド（各エントリのトップレベル）:**
 
 ```typescript
-// 各行がJSON object
-interface SessionLogEntry {
-  type: string; // "user", "assistant", "tool_use", "tool_result" 等
-  timestamp: string; // ISO 8601
-  model?: string; // "claude-sonnet-4-5-20250514" 等
-  message?: {
-    role: string;
-    content: string | ContentBlock[];
-  };
-  usage?: {
-    input_tokens: number;
-    output_tokens: number;
-    cache_read_input_tokens?: number;
-    cache_creation_input_tokens?: number;
-  };
-  costUSD?: number;
-  tool_name?: string; // ツール使用時
-  status?: string; // セッションステータス
+interface BaseEntry {
+  type: string;
+  sessionId: string;
+  uuid: string;
+  parentUuid: string | null;
+  timestamp: string;           // ISO 8601
+  cwd: string;                 // プロジェクトパス（例: "/Users/user/myproject"）
+  gitBranch: string;           // ブランチ名
+  version: string;             // Claude Codeバージョン（例: "2.1.63"）
+  userType: string;            // 常に "external"
+  permissionMode?: string;     // "bypassPermissions" | "default" | "acceptEdits"
+  isSidechain: boolean;
 }
 ```
 
-### 4.3 環境判別ロジック
+**`assistant` エントリの `message` 構造:**
 
-| 環境          | 判別方法（想定）                                              |
-| ------------- | ------------------------------------------------------------- |
-| CLI (Ghostty) | プロセスリストに `claude` コマンドが存在 + 起動元がターミナル |
-| VS Code       | プロセスリストに `code` 経由のClaude Code拡張                 |
-| Cursor        | プロセスリストに `cursor` 経由のClaude Code拡張               |
-| Desktop       | プロセスリストに `Claude.app`                                 |
+```typescript
+interface AssistantMessage {
+  model: string;               // 例: "claude-opus-4-6"
+  id: string;
+  type: "message";
+  role: "assistant";
+  content: ContentBlock[];     // text, thinking, tool_use 等
+  stop_reason: string | null;  // 実データでは常に null
+  usage: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_creation_input_tokens: number;
+    cache_read_input_tokens: number;
+  };
+}
 
-> ⚠️ セッションファイル内に起動元環境の情報が含まれるかは要確認。含まれない場合はプロセス情報から推測するか、`claude_desktop_config.json` 等を参照する。
+type ContentBlock =
+  | { type: "text"; text: string }
+  | { type: "thinking"; thinking: string }
+  | { type: "tool_use"; id: string; name: string; input: object }
+  ;
+```
 
-### 4.4 ステータス判定
+**`user` エントリの `message` 構造:**
 
-セッションのステータスはログエントリの最新状態から推定:
+```typescript
+interface UserMessage {
+  role: "user";
+  content: UserContentBlock[];
+}
 
-| ステータス       | 判定条件                                                    |
-| ---------------- | ----------------------------------------------------------- |
-| `working`        | 最新エントリが `assistant` type かつ進行中                  |
-| `needs_approval` | `tool_use` が発行されたが `tool_result` が未着              |
-| `idle`           | 最新エントリの `assistant` に `turn_end` あり、一定時間経過 |
-| `done`           | セッションファイルが更新されなくなった（閾値: 5分）         |
-| `error`          | エラー情報を含むエントリが最新                              |
+type UserContentBlock =
+  | { type: "text"; text: string }
+  | { type: "tool_result"; tool_use_id: string; content: string; is_error?: boolean }
+  ;
+```
+
+**重要な発見事項:**
+- `costUSD` フィールドは存在しない → コスト表示は実装しない
+- `model` は `message.model` にある（トップレベルではない）
+- `usage` は `message.usage` にある
+- `userType` は常に `"external"` — 環境判別には使えない
+- IDE環境のセッションは `<ide_opened_file>` タグが user メッセージに含まれる
+- `stop_reason` は実データでは常に `null`（API直接のレスポンスとは異なる）
+
+### 4.3 Webセッション（claude.ai API）
+
+**エンドポイント:**
+
+| メソッド | エンドポイント | 用途 |
+|---|---|---|
+| GET | `/api/organizations` | 組織ID取得 |
+| GET | `/api/organizations/{orgId}/chat_conversations` | 会話一覧 |
+| GET | `/api/organizations/{orgId}/chat_conversations/{chatId}` | 会話詳細 |
+
+**認証:** ブラウザの `sessionKey` Cookie（`sk-ant-sid01-*` 形式）
+
+**ディープリンク:** `https://claude.ai/chat/{conversationId}` で特定の会話に直接ジャンプ可能
+
+**制約事項:**
+- 非公式API — Anthropic が変更すると動かなくなる可能性あり
+- sessionKey の有効期限 — 期限切れ時はUIで再入力を促す
+- レートリミット — ポーリング間隔は30秒以上を維持
+
+### 4.4 環境判別ロジック（実機確認済み）
+
+JSONLデータには環境情報がないため、プロセス情報から判別する:
+
+| 環境 | 判別方法 | 確認済み |
+|---|---|---|
+| Terminal (CLI) | `claude` プロセスが TTY を持つ（`ps -o tty` が `ttysXXX`） | Yes |
+| Cursor | プロセスパスに `.cursor/extensions/anthropic.claude-code-` を含む | Yes |
+| VS Code | プロセスパスに `.vscode/extensions/anthropic.claude-code-` を含む | 未確認（要テスト） |
+| Desktop | 上記いずれにも該当しないローカルセッション | 推定 |
+| Web | `web_client.rs` 経由で取得（API由来） | - |
+
+**PID → セッション紐づけ:**
+1. `ps` でClaude Codeプロセス一覧を取得（PID, TTY, コマンドパス）
+2. `lsof -d cwd -p {PID}` で各プロセスのCWDを取得
+3. JSONL エントリの `cwd` フィールドとマッチング
+
+### 4.5 ステータス判定
+
+| ステータス | 判定条件 |
+|---|---|
+| `working` | JONLファイルが直近数秒以内に更新されている |
+| `needs_approval` | 最新の `assistant` エントリの `message.content` に `tool_use` があり、対応する `tool_result` が次の `user` エントリにまだない + ファイル更新が停止 |
+| `idle` | ファイル更新が1分以上停止 + 最新エントリが `assistant`（`tool_use` なし） |
+| `done` | ファイル更新が5分以上停止 |
+| `error` | 最新エントリにエラー情報を含む |
 
 ---
 
@@ -278,23 +363,23 @@ interface SessionLogEntry {
 │ List     │                                   │
 │          │  Project: my-app                  │
 │ [All|T|V │  Branch: feature/auth             │
-│  |C|D]   │  Model: claude-sonnet-4.5         │
+│  |C|D|W] │  Model: claude-opus-4-6           │
 │          │  Status: ● Working                │
 │ ┌──────┐ │                                   │
 │ │card 1│ │  Tokens: 12.4K in / 8.2K out     │
-│ │● work│ │  Cost: $0.42                      │
-│ └──────┘ │  Duration: 23m                    │
-│ ┌──────┐ │                                   │
-│ │card 2│ │  Active Tools:                    │
-│ │⏳ wait│ │  • Read  • Write  • Bash         │
+│ │● work│ │  Duration: 23m                    │
 │ └──────┘ │                                   │
-│ ┌──────┐ │  ┌─────────────────────────────┐  │
-│ │card 3│ │  │  Open in Ghostty →          │  │
-│ │● idle│ │  └─────────────────────────────┘  │
+│ ┌──────┐ │  Active Tools:                    │
+│ │card 2│ │  • Read  • Write  • Bash         │
+│ │⏳ wait│ │                                   │
+│ └──────┘ │  ┌─────────────────────────────┐  │
+│ ┌──────┐ │  │  Open in Ghostty →          │  │
+│ │card 3│ │  └─────────────────────────────┘  │
+│ │● idle│ │                                   │
 │ └──────┘ │                                   │
 │          │                                   │
 ├──────────┴───────────────────────────────────┤
-│ ~/.claude/projects/  │ 5 sessions │ 2 active │ ← ステータスバー (28px)
+│ 5 sessions │ 2 active │ Web: connected       │ ← ステータスバー (28px)
 └──────────────────────────────────────────────┘
 ```
 
@@ -305,7 +390,7 @@ interface SessionLogEntry {
 セッション一覧上部にタブ形式で配置:
 
 ```
-[ All ] [ T ] [ V ] [ C ] [ D ]
+[ All ] [ T ] [ V ] [ C ] [ D ] [ W ]
 ```
 
 | ラベル | 意味           |
@@ -315,6 +400,7 @@ interface SessionLogEntry {
 | V      | VS Code        |
 | C      | Cursor         |
 | D      | Desktop        |
+| W      | Web (claude.ai)|
 
 アクティブなタブにアクセントカラーの下線を表示。
 
@@ -328,7 +414,15 @@ interface SessionLogEntry {
 │    feature/auth            │  ← ブランチ名（mono）
 │    認証機能を実装して...     │  ← セッションタイトル（グレー）
 │ ● Working         23m ago  │  ← ステータスドット + 経過時間
-│                     $0.42  │  ← コスト（mono）
+└────────────────────────────┘
+```
+
+Webセッションの場合:
+```
+┌────────────────────────────┐
+│ W  Claude Code セッション   │  ← 環境バッジ + 会話名
+│    新機能の設計について...   │  ← セッションタイトル（グレー）
+│ ● Working          5m ago  │  ← ステータスドット + 経過時間
 └────────────────────────────┘
 ```
 
@@ -337,18 +431,9 @@ interface SessionLogEntry {
 セッションの内容を示すタイトル行。以下の優先順で決定:
 
 1. **手動エイリアス**（設定済みの場合）
-2. **自動取得**: セッションJSONLの最初の `user` メッセージから先頭80文字を切り出し、末尾 `...` で省略
+2. **自動取得**: ローカルはJSONLの最初の `user` メッセージから先頭80文字。Webは会話名。
 
-手動エイリアスは `tauri-plugin-store` で永続化:
-
-```json
-{
-  "session-aliases": {
-    "session-abc123": "認証機能の実装",
-    "session-def456": "DB設計リファクタ"
-  }
-}
-```
+手動エイリアスは `tauri-plugin-store` で永続化。
 
 編集UI: セッション詳細のタイトル横に ✏️ アイコン → クリックでインライン編集。空にするとエイリアス削除（自動タイトルに戻る）。
 
@@ -369,16 +454,15 @@ interface SessionLogEntry {
 
 - プロジェクト名（大きめ）
 - セッションタイトル + ✏️ 編集アイコン（クリックでインライン編集）
-- ブランチ名（mono、グレー）
+- ブランチ名（mono、グレー）— Webセッションでは非表示
 - ステータスバッジ
 
 **メトリクスセクション:**
 
 ```
-Model            claude-sonnet-4.5
+Model            claude-opus-4-6
 Input Tokens     12,438
 Output Tokens     8,201
-Cost              $0.42
 Duration          23m 15s
 Last Activity     2s ago
 ```
@@ -396,6 +480,13 @@ Last Activity     2s ago
 ```
 ┌────────────────────────────────┐
 │  ↗  Open in Ghostty           │
+└────────────────────────────────┘
+```
+
+Webセッションの場合:
+```
+┌────────────────────────────────┐
+│  ↗  Open in Browser           │
 └────────────────────────────────┘
 ```
 
@@ -429,6 +520,13 @@ Last Activity     2s ago
 - ドロップダウン: Ghostty / iTerm2 / Terminal.app / WezTerm
 - デフォルト: Ghostty
 
+**Web版連携:**
+
+- `sessionKey` 入力フィールド（パスワードマスク表示）
+- 取得方法のヘルプテキスト: 「claude.ai にログイン → DevTools → Application → Cookies → `sessionKey` の値をコピー」
+- 接続テストボタン
+- ステータス表示: Connected / Disconnected / Invalid Key
+
 **その他:**
 
 - ログイン時に自動起動: トグル（デフォルト: ON）
@@ -451,12 +549,12 @@ macOSメニューバーに常駐するアイコン:
 ウィンドウ最下部に固定:
 
 ```
-~/.claude/projects/  │  5 sessions  │  2 active
+5 sessions  │  2 active  │  Web: connected
 ```
 
-- 監視パス（mono、グレー）
 - 総セッション数
 - アクティブセッション数
+- Web接続ステータス（sessionKey 設定時のみ表示）
 
 ---
 
@@ -549,19 +647,67 @@ fn start_watching(app_handle: AppHandle) {
 }
 ```
 
-### 7.2 Launcher (`launcher.rs`)
+### 7.2 ProcessDetector (`process_detector.rs`)
 
-| 環境         | 起動コマンド                                             |
-| ------------ | -------------------------------------------------------- |
-| Ghostty      | `osascript -e 'tell application "Ghostty" to activate'`  |
-| iTerm2       | `osascript -e 'tell application "iTerm2" to activate'`   |
-| Terminal.app | `osascript -e 'tell application "Terminal" to activate'` |
-| WezTerm      | `osascript -e 'tell application "WezTerm" to activate'`  |
-| VS Code      | `code {project_path}`                                    |
-| Cursor       | `cursor {project_path}`                                  |
-| Desktop      | `open -a "Claude"`                                       |
+```rust
+// 擬似コード
+fn detect_environment(session_cwd: &str) -> Environment {
+    // 1. ps で claude プロセス一覧取得
+    // 2. lsof -d cwd でCWDマッチング
+    // 3. プロセスパス・TTYで環境判別
 
-### 7.3 Tauri IPC Commands
+    if process_path.contains(".cursor/extensions/") {
+        Environment::Cursor
+    } else if process_path.contains(".vscode/extensions/") {
+        Environment::VsCode
+    } else if has_tty {
+        Environment::Terminal
+    } else {
+        Environment::Desktop
+    }
+}
+```
+
+### 7.3 WebClient (`web_client.rs`)
+
+```rust
+// 擬似コード
+async fn poll_web_sessions(session_key: &str) -> Result<Vec<Session>> {
+    let client = reqwest::Client::new();
+
+    // 1. 組織ID取得
+    let orgs = client.get("https://claude.ai/api/organizations")
+        .header("Cookie", format!("sessionKey={}", session_key))
+        .send().await?;
+
+    // 2. 会話一覧取得
+    let conversations = client.get(format!(
+        "https://claude.ai/api/organizations/{}/chat_conversations", org_id
+    )).send().await?;
+
+    // 3. Session構造体に変換
+    conversations.iter().map(|c| Session {
+        id: c.id,
+        environment: Environment::Web,
+        // ...
+    }).collect()
+}
+```
+
+### 7.4 Launcher (`launcher.rs`)
+
+| 環境         | 起動コマンド | 精度 |
+| ------------ | -------------------------------------------------------- | --- |
+| Ghostty      | Accessibility API タブ名マッチ → クリック。フォールバック: `osascript activate` | 中 |
+| iTerm2       | `osascript -e 'tell application "iTerm2" to activate'`   | 低 |
+| Terminal.app | `osascript -e 'tell application "Terminal" to activate'` | 低 |
+| WezTerm      | `osascript -e 'tell application "WezTerm" to activate'`  | 低 |
+| VS Code      | `code {project_path}`                                    | 高 |
+| Cursor       | `cursor {project_path}`                                  | 高 |
+| Desktop      | `open -a "Claude"`                                       | 低 |
+| Web          | `open https://claude.ai/chat/{conversation_id}`          | 高 |
+
+### 7.5 Tauri IPC Commands
 
 ```typescript
 // フロントエンドから呼べるコマンド
@@ -578,6 +724,9 @@ interface TauriCommands {
 
   // セッションエイリアス
   save_alias(sessionId: string, alias: string | null): Promise<void>;
+
+  // Web接続テスト
+  test_web_connection(sessionKey: string): Promise<{ success: boolean; error?: string }>;
 }
 
 // Rustからフロントエンドへのイベント
@@ -585,6 +734,7 @@ interface TauriEvents {
   "session-update": Session;
   "session-removed": { id: string };
   "approval-needed": { sessionId: string; tool: string; detail: string };
+  "web-connection-status": { connected: boolean; error?: string };
 }
 ```
 
@@ -596,31 +746,30 @@ interface TauriEvents {
 
 ```typescript
 interface Session {
-  id: string; // セッションID
-  projectPath: string; // プロジェクトパス
-  projectName: string; // パスから抽出したプロジェクト名
-  branchName?: string; // Gitブランチ名
-  title: string; // セッションタイトル（自動: 最初のユーザーメッセージ先頭80文字）
-  alias?: string; // 手動エイリアス（設定済みの場合titleより優先）
-  environment: Environment; // 起動元環境
-  status: SessionStatus; // 現在のステータス
-  model?: string; // 使用モデル
-  inputTokens: number; // 累計入力トークン
-  outputTokens: number; // 累計出力トークン
-  costUSD: number; // 累計コスト（USD）
-  activeTools: string[]; // 使用中のツール一覧
-  startedAt: string; // セッション開始時刻 (ISO 8601)
-  lastActivityAt: string; // 最終アクティビティ (ISO 8601)
+  id: string;                    // セッションID（ローカル: UUID, Web: conversation ID）
+  projectPath: string;           // プロジェクトパス（Web: 空文字列）
+  projectName: string;           // パスから抽出したプロジェクト名（Web: 会話名）
+  branchName?: string;           // Gitブランチ名（Web: なし）
+  title: string;                 // セッションタイトル
+  alias?: string;                // 手動エイリアス（設定済みの場合titleより優先）
+  environment: Environment;      // 起動元環境
+  status: SessionStatus;         // 現在のステータス
+  model?: string;                // 使用モデル
+  inputTokens: number;           // 累計入力トークン
+  outputTokens: number;          // 累計出力トークン
+  activeTools: string[];         // 使用中のツール一覧
+  startedAt: string;             // セッション開始時刻 (ISO 8601)
+  lastActivityAt: string;        // 最終アクティビティ (ISO 8601)
   approvalDetail?: ApprovalDetail; // 承認待ち時の詳細
-  errorMessage?: string; // エラー時のメッセージ
+  errorMessage?: string;         // エラー時のメッセージ
 }
 
-type Environment = "terminal" | "vscode" | "cursor" | "desktop";
+type Environment = "terminal" | "vscode" | "cursor" | "desktop" | "web";
 type SessionStatus = "working" | "needs_approval" | "idle" | "done" | "error";
 
 interface ApprovalDetail {
-  tool: string; // ツール名
-  description: string; // 実行しようとしている内容
+  tool: string;                  // ツール名
+  description: string;           // 実行しようとしている内容
 }
 ```
 
@@ -628,10 +777,11 @@ interface ApprovalDetail {
 
 ```typescript
 interface Settings {
-  accentColor: string; // HEXカラー
-  terminalApp: TerminalApp; // 使用ターミナル
-  launchAtLogin: boolean; // 自動起動
+  accentColor: string;           // HEXカラー
+  terminalApp: TerminalApp;      // 使用ターミナル
+  launchAtLogin: boolean;        // 自動起動
   notificationsEnabled: boolean; // 通知
+  claudeSessionKey?: string;     // claude.ai Web版監視用（sk-ant-sid01-*）
 }
 
 type TerminalApp = "ghostty" | "iterm2" | "terminal" | "wezterm";
@@ -647,28 +797,20 @@ type TerminalApp = "ghostty" | "iterm2" | "terminal" | "wezterm";
 - `cc-pilot-{version}-macos-x64.dmg`
 - Universal binary も検討
 
-### 9.2 npm
-
-```bash
-npx cc-pilot  # Tauriバイナリをダウンロード＆実行
-```
-
-### 9.3 CI/CD
+### 9.2 CI/CD
 
 GitHub Actionsワークフロー:
 
-1. `main` ブランチへのpushまたはtagでトリガー
+1. `main` ブランチへのtag pushでトリガー
 2. macOS runner でビルド（arm64 + x64）
 3. `.app` を `.dmg` にパッケージング
 4. GitHub Releasesに自動アップロード
-5. npm publish
 
-### 9.4 README
+### 9.3 README
 
 - 英語 + 日本語
 - スクリーンショット付き
 - インストール手順
-- 競合ツールとの比較
 
 ---
 
@@ -682,48 +824,46 @@ GitHub Actionsワークフロー:
 - モバイル対応
 - セッションへのメッセージ送信
 - セッション履歴の永続化（リアルタイム監視のみ）
+- コスト表示（JONLにcostUSD情報なし）
 
 ### 10.2 前提条件
 
 - macOS 12 (Monterey) 以上
 - Claude Codeがインストール済み
 - `~/.claude/projects/` にセッションデータが存在すること
-
-### 10.3 未確認事項（実機検証が必要）
-
-1. `~/.claude/projects/` 配下のJSONL構造の正確なスキーマ
-2. セッションファイルから環境（CLI/VSCode/Cursor/Desktop）を判別する方法
-3. セッションステータス（working/needs_approval等）の正確な判定方法
-4. コスト情報がセッションファイルに含まれるか
+- Web版監視: claude.ai の有効なsessionKeyが必要
 
 ---
 
 ## 11. マイルストーン
 
-### Phase 1: 基盤（1-2日）
+### Phase 1: 基盤
 
-- [ ] リポジトリ作成
 - [ ] Tauri v2プロジェクト初期化
 - [ ] 基本ディレクトリ構造
-- [ ] `~/.claude/projects/` の実データ確認・パーサー実装
 
-### Phase 2: コア機能（2-3日）
+### Phase 2: コアバックエンド
 
-- [ ] ファイルウォッチャー実装
-- [ ] セッション一覧UI
-- [ ] セッション詳細UI
+- [ ] watcher + parser（ファイル監視・JSONLパース）
+- [ ] process_detector（環境判別）
+- [ ] session 構造体
+
+### Phase 3: コアUI
+
+- [ ] SessionList（サイドバー）
+- [ ] SessionDetail（メインパネル）
+- [ ] 環境フィルター
 - [ ] ステータス判定ロジック
 
-### Phase 3: 統合（1-2日）
+### Phase 4: ジャンプ＆統合
 
-- [ ] ジャンプ機能（osascript / code / cursor）
-- [ ] macOS通知
-- [ ] メニューバー常駐
-- [ ] 設定画面
+- [ ] launcher（ジャンプ機能）
+- [ ] web_client（claude.ai APIポーリング）
+- [ ] Settings画面（sessionKey入力含む）
 
-### Phase 4: 配布準備（1日）
+### Phase 5: 仕上げ
 
-- [ ] アイコン統合
+- [ ] tray + notifier（メニューバー常駐 + 通知）
+- [ ] StatusBar
 - [ ] CI/CD設定
 - [ ] README作成
-- [ ] npm パッケージ準備

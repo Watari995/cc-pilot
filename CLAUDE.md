@@ -2,7 +2,7 @@
 
 ## プロジェクト概要
 
-cc-pilot は Claude Code の全セッション（CLI / VS Code / Cursor / Desktop）を1つのUIでリアルタイム監視する macOS デスクトップアプリ。Tauri v2 + React + TypeScript + Rust で構築。
+cc-pilot は Claude Code の全セッション（CLI / VS Code / Cursor / Desktop / Web）を1つのUIでリアルタイム監視する macOS デスクトップアプリ。Tauri v2 + React + TypeScript + Rust で構築。
 
 ## クイックリファレンス
 
@@ -32,17 +32,30 @@ cd src-tauri && cargo clippy
 | フロントエンド | React 19 + TypeScript 5 + Vite |
 | 状態管理 | Zustand |
 | バックエンド | Rust |
-| 主要 crates | `notify` (ファイル監視), `serde`/`serde_json`, `tauri-plugin-notification`, `tauri-plugin-shell`, `tauri-plugin-store` |
+| 主要 crates | `notify` (ファイル監視), `reqwest` (HTTP), `serde`/`serde_json`, `tauri-plugin-notification`, `tauri-plugin-shell`, `tauri-plugin-store` |
 
 ## アーキテクチャ
 
 ### データフロー
+
+**ローカルセッション（CLI / Cursor / VS Code / Desktop）:**
 ```
 ~/.claude/projects/**/*.jsonl
   → Rust FileWatcher (notify crate)
   → JSONパース (serde)
+  → プロセス情報で環境判別
   → Tauri IPC (emit event)
   → React Zustand store
+  → UI更新
+```
+
+**Webセッション（claude.ai）:**
+```
+claude.ai API (非公式)
+  → Rust WebClient (reqwest crate, 30秒ポーリング)
+  → Session構造体に変換 (environment: "web")
+  → Tauri IPC (emit event)
+  → React Zustand store に統合
   → UI更新
 ```
 
@@ -65,7 +78,9 @@ src-tauri/src/           # Rust バックエンド
 ├── watcher.rs           # ~/.claude/projects/ 監視
 ├── parser.rs            # JSONL パーサー
 ├── session.rs           # Session構造体定義
-├── launcher.rs          # 外部アプリ起動 (osascript, code, cursor)
+├── process_detector.rs  # プロセス情報から環境判別
+├── web_client.rs        # claude.ai API クライアント
+├── launcher.rs          # 外部アプリ起動 (osascript, code, cursor, open URL)
 ├── notifier.rs          # macOS通知
 └── tray.rs              # メニューバーアイコン
 ```
@@ -78,10 +93,47 @@ src-tauri/src/           # Rust バックエンド
 - デバウンス: 同一ファイルの変更は 100ms でバッチ処理
 
 ### 2. セッションパース (`parser.rs`)
-- JSONL形式（1行1JSON）を行単位で読み取り
-- 最新の数行からステータス・モデル・トークン数・コストを抽出
-- セッションタイトル: 最初の `user` タイプメッセージから先頭80文字を自動抽出
-- **重要**: ファイル全体を毎回読むのではなく、末尾から逆順に必要な情報を取得（パフォーマンス）
+
+**実データ確認済みのJSONL構造:**
+
+各行は以下のいずれかの `type` を持つ:
+- `user` — ユーザーメッセージ
+- `assistant` — アシスタント応答（`message.model`, `message.usage` を含む）
+- `progress` — フック実行やエージェント進捗（`data.type`: `hook_progress`, `agent_progress`, `bash_progress`）
+- `system` — コンパクション境界等
+- `queue-operation` — キュー操作
+- `file-history-snapshot` — ファイル履歴スナップショット
+
+**共通フィールド（各エントリのトップレベル）:**
+```
+sessionId, uuid, parentUuid, timestamp, type,
+cwd, gitBranch, version, userType, permissionMode
+```
+
+**assistant エントリの `message` 構造:**
+```json
+{
+  "model": "claude-opus-4-6",
+  "role": "assistant",
+  "content": [{"type": "thinking", ...}, {"type": "text", ...}, {"type": "tool_use", ...}],
+  "stop_reason": null,
+  "usage": {
+    "input_tokens": 3,
+    "output_tokens": 14,
+    "cache_creation_input_tokens": 1757,
+    "cache_read_input_tokens": 18914
+  }
+}
+```
+
+**重要な実装ポイント:**
+- `costUSD` フィールドは存在しない → コスト表示は実装しない
+- `model` は `message.model` にある（トップレベルではない）
+- `usage` は `message.usage` にある
+- `tool_use` は `message.content[]` 内の要素として出現
+- `tool_result` は次の `user` エントリの `message.content[]` 内に出現
+- ファイル全体を毎回読むのではなく、末尾から逆順に必要な情報を取得（パフォーマンス）
+- セッションタイトル: 最初の `user` タイプメッセージの `message.content` からテキストを抽出、先頭80文字
 
 ### 2.5 セッションエイリアス
 - `tauri-plugin-store` で `session-aliases` として永続化
@@ -89,21 +141,69 @@ src-tauri/src/           # Rust バックエンド
 - セッション詳細のタイトル横 ✏️ アイコン → インライン編集
 - 空にするとエイリアス削除（自動タイトルに戻る）
 
-### 3. ジャンプ機能 (`launcher.rs`)
-| 環境 | 起動コマンド |
-|---|---|
-| Ghostty | `osascript -e 'tell application "Ghostty" to activate'` |
-| iTerm2 | `osascript -e 'tell application "iTerm2" to activate'` |
-| VS Code | `code {project_path}` |
-| Cursor | `cursor {project_path}` |
-| Desktop | `open -a "Claude"` |
+### 3. 環境判別 (`process_detector.rs`)
 
-### 4. 通知 (`notifier.rs`)
+JSONLデータには環境情報がないため、プロセス情報から判別する:
+
+| 環境 | 判別方法 |
+|---|---|
+| Terminal (CLI) | `claude` プロセスが TTY を持つ（`ps -o tty` が `ttysXXX`） |
+| Cursor | プロセスパスに `.cursor/extensions/` を含む |
+| VS Code | プロセスパスに `.vscode/extensions/` を含む |
+| Desktop | 上記いずれにも該当しないローカルセッション |
+| Web | `web_client.rs` 経由で取得（API由来） |
+
+`lsof -d cwd -p {PID}` でプロセスの CWD を取得し、JSONL の `cwd` フィールドとマッチングしてセッションと紐づける。
+
+### 4. ジャンプ機能 (`launcher.rs`)
+
+| 環境 | 起動コマンド | 精度 |
+|---|---|---|
+| Ghostty | Accessibility API でタブ名マッチ → クリック。失敗時は `osascript` で activate | 中（タブ名重複時は曖昧） |
+| iTerm2 | `osascript -e 'tell application "iTerm2" to activate'` | 低（アプリ前面化のみ） |
+| Terminal.app | `osascript -e 'tell application "Terminal" to activate'` | 低 |
+| WezTerm | `osascript -e 'tell application "WezTerm" to activate'` | 低 |
+| VS Code | `code {project_path}` | 高（既存ウィンドウ再利用） |
+| Cursor | `cursor {project_path}` | 高（既存ウィンドウ再利用） |
+| Desktop | `open -a "Claude"` | 低（アプリ前面化のみ） |
+| Web | `open https://claude.ai/chat/{conversationId}` | 高（直接ジャンプ） |
+
+### 5. Webセッション監視 (`web_client.rs`)
+
+**claude.ai 非公式 API を利用:**
+
+| メソッド | エンドポイント | 用途 |
+|---|---|---|
+| GET | `/api/organizations` | 組織ID取得 |
+| GET | `/api/organizations/{orgId}/chat_conversations` | 会話一覧 |
+| GET | `/api/organizations/{orgId}/chat_conversations/{chatId}` | 会話詳細 |
+
+- 認証: ユーザーが Settings で入力する `sessionKey` Cookie（`sk-ant-sid01-*` 形式）
+- ポーリング間隔: 30秒
+- `sessionKey` は `tauri-plugin-store` で保存
+- ジャンプ: `open https://claude.ai/chat/{conversationId}`
+
+**注意事項:**
+- 非公式API — Anthropic が変更すると動かなくなる可能性あり
+- sessionKey の有効期限あり — 期限切れ時はUIで再入力を促す
+- レートリミット — ポーリング間隔は30秒以上を維持
+
+### 6. ステータス判定
+
+| ステータス | 判定条件 |
+|---|---|
+| `working` | JSONL ファイルが直近数秒以内に更新されている |
+| `needs_approval` | 最新の `assistant` エントリの `message.content` に `tool_use` があり、対応する `tool_result` が次の `user` エントリにまだない + ファイル更新が停止 |
+| `idle` | ファイル更新が 1分以上停止 + 最新エントリが `assistant`（`tool_use` なし） |
+| `done` | ファイル更新が 5分以上停止 |
+| `error` | 最新エントリにエラー情報を含む |
+
+### 7. 通知 (`notifier.rs`)
 - `tauri-plugin-notification` 使用
 - セッションが `needs_approval` になったときのみ発火
 - 通知タップでメインウィンドウを表示
 
-### 5. メニューバー常駐 (`tray.rs`)
+### 8. メニューバー常駐 (`tray.rs`)
 - Tauri の SystemTray API 使用
 - 22x22px テンプレートイメージ（単色白）
 - クリックでウィンドウ show/hide
@@ -124,7 +224,7 @@ src-tauri/src/           # Rust バックエンド
 
 ### フォント
 - UI: `-apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", sans-serif`
-- コード要素（ブランチ名, パス, コスト, ツール名）: `SF Mono, Cascadia Code, Fira Code, Menlo, monospace`
+- コード要素（ブランチ名, パス, ツール名）: `SF Mono, Cascadia Code, Fira Code, Menlo, monospace`
 
 ### ステータスカラー
 | ステータス | 色 |
@@ -145,7 +245,7 @@ src-tauri/src/           # Rust バックエンド
 ## TypeScript 型定義
 
 ```typescript
-type Environment = "terminal" | "vscode" | "cursor" | "desktop";
+type Environment = "terminal" | "vscode" | "cursor" | "desktop" | "web";
 type SessionStatus = "working" | "needs_approval" | "idle" | "done" | "error";
 type TerminalApp = "ghostty" | "iterm2" | "terminal" | "wezterm";
 
@@ -161,7 +261,6 @@ interface Session {
   model?: string;
   inputTokens: number;
   outputTokens: number;
-  costUSD: number;
   activeTools: string[];
   startedAt: string;
   lastActivityAt: string;
@@ -174,6 +273,7 @@ interface Settings {
   terminalApp: TerminalApp;
   launchAtLogin: boolean;
   notificationsEnabled: boolean;
+  claudeSessionKey?: string;      // claude.ai Web版監視用（sk-ant-sid01-*）
 }
 ```
 
@@ -225,22 +325,6 @@ listen("approval-needed", (event: { payload: { sessionId: string; tool: string }
 - CSS変数は `styles/global.css` に集約
 - `--accent` を変更するだけでテーマカラーが全体に反映される設計
 
-## セッションデータの実機確認
-
-> **開発開始前に必ず確認すること:**
->
-> 1. `ls -la ~/.claude/projects/` の構造
-> 2. 任意のセッションファイル（`.jsonl`）の中身を `head -50` で確認
-> 3. 以下のフィールドの有無を検証:
->    - モデル名
->    - トークン数（input/output）
->    - コスト
->    - ツール名
->    - ステータス（特に承認待ちの判別方法）
->    - 環境判別に使える情報
->
-> 確認結果に基づいて `parser.rs` の実装を決定する。
-
 ## v1 スコープ外
 
 以下は実装しない:
@@ -251,15 +335,22 @@ listen("approval-needed", (event: { payload: { sessionId: string; tool: string }
 - セッションへのメッセージ送信
 - セッション履歴の永続化
 
+## 配布
+
+- `.dmg` + GitHub Releases のみ
+- `cc-pilot-{version}-macos-arm64.dmg` / `cc-pilot-{version}-macos-x64.dmg`
+- CI/CD: GitHub Actions（tag push でビルド → Release 自動アップロード）
+
 ## 実装順序（推奨）
 
 1. **Tauri v2 プロジェクト初期化** — `npm create tauri-app@latest`
-2. **`~/.claude/projects/` の実データ確認** — パーサー仕様確定
-3. **Rust: watcher + parser** — ファイル監視とJSONLパース
+2. **Rust: watcher + parser** — ファイル監視とJSONLパース（実データ構造確認済み）
+3. **Rust: process_detector** — プロセス情報から環境判別
 4. **React: SessionList + SessionDetail** — メインUI
 5. **Rust: launcher** — ジャンプ機能
-6. **React: Settings** — 設定画面
-7. **Rust: tray + notifier** — メニューバー常駐 + 通知
-8. **StatusBar** — 下部ステータスバー
-9. **CI/CD** — GitHub Actions
-10. **README + 配布準備**
+6. **Rust: web_client** — claude.ai APIポーリング
+7. **React: Settings** — 設定画面（sessionKey入力含む）
+8. **Rust: tray + notifier** — メニューバー常駐 + 通知
+9. **StatusBar** — 下部ステータスバー
+10. **CI/CD** — GitHub Actions
+11. **README + 配布準備**
