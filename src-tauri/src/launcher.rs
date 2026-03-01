@@ -1,4 +1,4 @@
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 use crate::session::Session;
 use crate::session::Environment;
@@ -165,6 +165,7 @@ end tell
     Command::new("osascript")
         .arg("-e")
         .arg(&script)
+        .stderr(Stdio::null())
         .spawn()
         .map_err(|e| format!("Failed to launch iTerm2: {}", e))?;
     Ok(())
@@ -222,6 +223,7 @@ end tell
     Command::new("osascript")
         .arg("-e")
         .arg(&script)
+        .stderr(Stdio::null())
         .spawn()
         .map_err(|e| format!("Failed to launch Terminal.app: {}", e))?;
     Ok(())
@@ -269,6 +271,7 @@ fn launch_wezterm(session: &Session) -> Result<(), String> {
     Command::new("osascript")
         .arg("-e")
         .arg(r#"tell application "WezTerm" to activate"#)
+        .stderr(Stdio::null())
         .spawn()
         .map_err(|e| format!("Failed to activate WezTerm: {}", e))?;
     Ok(())
