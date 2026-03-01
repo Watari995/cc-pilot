@@ -1,21 +1,10 @@
 use std::process::Command;
 
-use crate::session::{Environment, Session};
-
-/// ターミナルアプリの種類（Phase 3 で設定画面から変更可能にする）
-#[derive(Debug, Clone, Copy)]
-pub enum TerminalApp {
-    Ghostty,
-    Iterm2,
-    TerminalApp,
-    Wezterm,
-}
-
-/// デフォルトのターミナルアプリ（Phase 3 で設定から読み取りに変更）
-const DEFAULT_TERMINAL: TerminalApp = TerminalApp::Ghostty;
+use crate::session::Session;
+use crate::session::Environment;
 
 /// セッションの環境に応じてアプリケーションを起動する
-pub fn open_session(session: &Session) -> Result<(), String> {
+pub fn open_session(session: &Session, terminal_app: &str) -> Result<(), String> {
     log::info!(
         "Launching session {} in {:?} (project: {})",
         session.id,
@@ -24,7 +13,7 @@ pub fn open_session(session: &Session) -> Result<(), String> {
     );
 
     match session.environment {
-        Environment::Terminal => launch_terminal(session, DEFAULT_TERMINAL),
+        Environment::Terminal => launch_terminal(session, terminal_app),
         Environment::Vscode => launch_editor("code", &session.project_path),
         Environment::Cursor => launch_editor("cursor", &session.project_path),
         Environment::Desktop => launch_desktop(session),
@@ -69,12 +58,13 @@ fn launch_web(session: &Session) -> Result<(), String> {
 
 // ─── Terminal ───────────────────────────────────────────────────
 
-fn launch_terminal(session: &Session, app: TerminalApp) -> Result<(), String> {
+fn launch_terminal(session: &Session, app: &str) -> Result<(), String> {
     match app {
-        TerminalApp::Ghostty => launch_ghostty(session),
-        TerminalApp::Iterm2 => launch_iterm2(session),
-        TerminalApp::TerminalApp => launch_terminal_app(session),
-        TerminalApp::Wezterm => launch_wezterm(session),
+        "ghostty" => launch_ghostty(session),
+        "iterm2" => launch_iterm2(session),
+        "terminal" => launch_terminal_app(session),
+        "wezterm" => launch_wezterm(session),
+        _ => launch_ghostty(session),
     }
 }
 

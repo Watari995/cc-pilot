@@ -1,6 +1,7 @@
 mod launcher;
 mod parser;
 mod session;
+mod settings;
 mod watcher;
 
 use session::Session;
@@ -24,12 +25,39 @@ fn get_sessions(
 fn open_in_environment(
     session_id: String,
     store: tauri::State<'_, watcher::SessionStore>,
+    app_handle: tauri::AppHandle,
 ) -> Result<(), String> {
     let sessions = store.lock().map_err(|e| e.to_string())?;
     let session = sessions
         .get(&session_id)
         .ok_or_else(|| format!("Session not found: {}", session_id))?;
-    launcher::open_session(session)
+    let s = settings::load_settings(&app_handle);
+    launcher::open_session(session, &s.terminal_app)
+}
+
+/// 設定を取得
+#[tauri::command]
+fn get_settings(app_handle: tauri::AppHandle) -> settings::Settings {
+    settings::load_settings(&app_handle)
+}
+
+/// 設定を保存
+#[tauri::command]
+fn save_settings(
+    new_settings: settings::Settings,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    settings::save_settings(&app_handle, &new_settings)
+}
+
+/// セッションエイリアスを保存
+#[tauri::command]
+fn save_alias(
+    session_id: String,
+    alias: Option<String>,
+    app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    settings::save_alias(&app_handle, &session_id, alias.as_deref())
 }
 
 /// アプリケーションの起動
@@ -48,7 +76,13 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .manage(session_store.clone())
-        .invoke_handler(tauri::generate_handler![get_sessions, open_in_environment])
+        .invoke_handler(tauri::generate_handler![
+                get_sessions,
+                open_in_environment,
+                get_settings,
+                save_settings,
+                save_alias,
+            ])
         .setup(move |app| {
             let handle = app.handle().clone();
             // ファイル監視を開始
