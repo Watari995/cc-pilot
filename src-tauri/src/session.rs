@@ -11,6 +11,17 @@ pub enum Environment {
     Web,
 }
 
+impl Environment {
+    /// 文字列から Environment を生成（IDE 設定用）
+    pub fn from_ide_str(s: &str) -> Self {
+        match s {
+            "vscode" => Environment::Vscode,
+            "cursor" => Environment::Cursor,
+            _ => Environment::Cursor,
+        }
+    }
+}
+
 /// セッションのステータス
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]

@@ -1,5 +1,5 @@
 import { useSettingsStore } from "../../hooks/use-settings";
-import type { TerminalApp } from "../../lib/types";
+import type { IdeApp, TerminalApp } from "../../lib/types";
 import styles from "./settings.module.css";
 
 const ACCENT_PRESETS = [
@@ -15,6 +15,11 @@ const TERMINAL_OPTIONS: { value: TerminalApp; label: string }[] = [
   { value: "iterm2", label: "iTerm2" },
   { value: "terminal", label: "Terminal.app" },
   { value: "wezterm", label: "WezTerm" },
+];
+
+const IDE_OPTIONS: { value: IdeApp; label: string }[] = [
+  { value: "cursor", label: "Cursor" },
+  { value: "vscode", label: "VS Code" },
 ];
 
 interface SettingsProps {
@@ -69,7 +74,7 @@ export function Settings({ onClose }: SettingsProps) {
 
       {/* Terminal App */}
       <div className={styles.section}>
-        <div className={styles.sectionTitle}>Terminal</div>
+        <div className={styles.sectionTitle}>Applications</div>
         <div className={styles.row}>
           <div>
             <div className={styles.rowLabel}>Terminal App</div>
@@ -85,6 +90,27 @@ export function Settings({ onClose }: SettingsProps) {
             }
           >
             {TERMINAL_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className={styles.row}>
+          <div>
+            <div className={styles.rowLabel}>IDE</div>
+            <div className={styles.rowHint}>
+              IDE sessions are detected as this app
+            </div>
+          </div>
+          <select
+            className={styles.select}
+            value={settings.defaultIde}
+            onChange={(e) =>
+              update({ defaultIde: e.target.value as IdeApp })
+            }
+          >
+            {IDE_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
                 {opt.label}
               </option>

@@ -5,6 +5,7 @@ import type { Settings } from "../lib/types";
 const DEFAULT_SETTINGS: Settings = {
   accentColor: "#E8734A",
   terminalApp: "ghostty",
+  defaultIde: "cursor",
   launchAtLogin: true,
   notificationsEnabled: true,
 };

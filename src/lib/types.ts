@@ -1,6 +1,7 @@
 export type Environment = "terminal" | "vscode" | "cursor" | "desktop" | "web";
 export type SessionStatus = "working" | "needs_approval" | "idle" | "done" | "error";
 export type TerminalApp = "ghostty" | "iterm2" | "terminal" | "wezterm";
+export type IdeApp = "cursor" | "vscode";
 
 export interface ApprovalDetail {
   tool: string;
@@ -29,6 +30,7 @@ export interface Session {
 export interface Settings {
   accentColor: string;
   terminalApp: TerminalApp;
+  defaultIde: IdeApp;
   launchAtLogin: boolean;
   notificationsEnabled: boolean;
   claudeSessionKey?: string;

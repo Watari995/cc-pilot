@@ -1,10 +1,12 @@
 mod launcher;
+mod notifier;
 mod parser;
 mod session;
 mod settings;
+mod tray;
 mod watcher;
 
-use session::Session;
+use session::{Environment, Session};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -66,11 +68,6 @@ pub fn run() {
 
     let session_store: watcher::SessionStore = Arc::new(Mutex::new(HashMap::new()));
 
-    // 初回スキャン
-    if let Err(e) = watcher::initial_scan(&session_store) {
-        log::error!("Initial scan failed: {}", e);
-    }
-
     tauri::Builder::default()
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_shell::init())
@@ -84,12 +81,34 @@ pub fn run() {
                 save_alias,
             ])
         .setup(move |app| {
+            // トレイアイコンをセットアップ
+            if let Err(e) = tray::setup_tray(app) {
+                log::error!("Failed to setup tray: {}", e);
+            }
+
             let handle = app.handle().clone();
+
+            // 設定から default_ide を取得
+            let s = settings::load_settings(&handle);
+            let default_ide = Environment::from_ide_str(&s.default_ide);
+
+            // 初回スキャン（setup 内で実行して設定にアクセスできるようにする）
+            if let Err(e) = watcher::initial_scan(&session_store, &default_ide) {
+                log::error!("Initial scan failed: {}", e);
+            }
+
             // ファイル監視を開始
             if let Err(e) = watcher::start_watching(handle, session_store.clone()) {
                 log::error!("Failed to start file watcher: {}", e);
             }
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            // ウィンドウ閉じるボタンで hide（アプリは終了しない）
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                let _ = window.hide();
+                api.prevent_close();
+            }
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -5,10 +5,10 @@ use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::session::{ApprovalDetail, Session, SessionStatus};
+use crate::session::{ApprovalDetail, Environment, Session, SessionStatus};
 
 /// JSONL ファイルの末尾から情報を抽出してSessionを構築する
-pub fn parse_session_file(path: &Path) -> Result<Session> {
+pub fn parse_session_file(path: &Path, default_ide: &Environment) -> Result<Session> {
     let file = File::open(path).with_context(|| format!("Failed to open {}", path.display()))?;
     let metadata = file.metadata()?;
     let file_size = metadata.len();
@@ -50,6 +50,7 @@ pub fn parse_session_file(path: &Path) -> Result<Session> {
     let head_lines = read_head_lines(path, 20)?;
     let title = extract_title(&head_lines);
     let cwd_from_head = extract_cwd(&head_lines);
+    let env_from_head = detect_environment(&head_lines, default_ide);
 
     // 末尾のエントリから情報を抽出
     let mut model: Option<String> = None;
@@ -64,6 +65,7 @@ pub fn parse_session_file(path: &Path) -> Result<Session> {
     let mut pending_tool_name: Option<String> = None;
     let mut pending_tool_desc: Option<String> = None;
     let mut cwd_from_file: Option<String> = None;
+    let mut detected_env = Environment::Terminal;
 
     // 全 tail 行を走査
     for line in &tail_lines {
@@ -152,6 +154,16 @@ pub fn parse_session_file(path: &Path) -> Result<Session> {
                             if block.get("type").and_then(|v| v.as_str()) == Some("tool_result") {
                                 has_pending_tool_use = false;
                             }
+                            // IDE 環境検出: ide_selection / ide_opened_file タグがあれば IDE セッション
+                            if detected_env == Environment::Terminal {
+                                if let Some(text) = block.get("text").and_then(|v| v.as_str()) {
+                                    if text.contains("<ide_selection>")
+                                        || text.contains("<ide_opened_file>")
+                                    {
+                                        detected_env = default_ide.clone();
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -202,7 +214,11 @@ pub fn parse_session_file(path: &Path) -> Result<Session> {
         branch_name,
         title,
         alias: None,
-        environment: crate::session::Environment::Terminal, // 暫定、process_detectorで上書き
+        environment: if env_from_head != Environment::Terminal {
+            env_from_head
+        } else {
+            detected_env
+        },
         status,
         model,
         input_tokens,
@@ -279,6 +295,16 @@ fn extract_project_info(path: &Path) -> (String, String) {
         .to_string();
 
     (project_path, project_name)
+}
+
+/// エントリから環境を検出（IDE タグの有無で判定）
+fn detect_environment(lines: &[String], default_ide: &Environment) -> Environment {
+    for line in lines {
+        if line.contains("<ide_selection>") || line.contains("<ide_opened_file>") {
+            return default_ide.clone();
+        }
+    }
+    Environment::Terminal
 }
 
 /// エントリから cwd を抽出

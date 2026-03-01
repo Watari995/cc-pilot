@@ -7,14 +7,16 @@ use std::sync::{mpsc, Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter};
 
+use crate::notifier;
 use crate::parser::parse_session_file;
-use crate::session::Session;
+use crate::session::{Environment, Session, SessionStatus};
+use crate::settings;
 
 /// セッション状態を保持する共有ステート
 pub type SessionStore = Arc<Mutex<HashMap<String, Session>>>;
 
 /// 初回起動時に ~/.claude/projects/ を一括スキャンしてセッション一覧を構築
-pub fn initial_scan(store: &SessionStore) -> Result<()> {
+pub fn initial_scan(store: &SessionStore, default_ide: &Environment) -> Result<()> {
     let projects_dir = get_projects_dir()?;
     if !projects_dir.exists() {
         warn!(
@@ -27,14 +29,14 @@ pub fn initial_scan(store: &SessionStore) -> Result<()> {
     info!("Scanning sessions in: {}", projects_dir.display());
     let mut count = 0;
 
-    scan_directory(&projects_dir, store, &mut count)?;
+    scan_directory(&projects_dir, store, &mut count, default_ide)?;
 
     info!("Initial scan complete: {} sessions found", count);
     Ok(())
 }
 
 /// ディレクトリを再帰的にスキャンして .jsonl ファイルをパース
-fn scan_directory(dir: &Path, store: &SessionStore, count: &mut usize) -> Result<()> {
+fn scan_directory(dir: &Path, store: &SessionStore, count: &mut usize, default_ide: &Environment) -> Result<()> {
     let entries = std::fs::read_dir(dir)?;
     for entry in entries.flatten() {
         let path = entry.path();
@@ -47,9 +49,9 @@ fn scan_directory(dir: &Path, store: &SessionStore, count: &mut usize) -> Result
             {
                 continue;
             }
-            scan_directory(&path, store, count)?;
+            scan_directory(&path, store, count, default_ide)?;
         } else if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
-            match parse_session_file(&path) {
+            match parse_session_file(&path, default_ide) {
                 Ok(session) => {
                     let mut sessions = store.lock().unwrap();
                     sessions.insert(session.id.clone(), session);
@@ -137,10 +139,25 @@ fn watch_loop(app_handle: &AppHandle, store: &SessionStore, projects_dir: &Path)
                     }
 
                     // パースして更新
-                    match parse_session_file(path) {
+                    let ide = Environment::from_ide_str(
+                        &settings::load_settings(app_handle).default_ide,
+                    );
+                    match parse_session_file(path, &ide) {
                         Ok(session) => {
                             let mut sessions = store.lock().unwrap();
+                            let old_status = sessions
+                                .get(&session.id)
+                                .map(|s| s.status.clone());
                             sessions.insert(session.id.clone(), session.clone());
+                            drop(sessions);
+
+                            // needs_approval への遷移時に通知
+                            if session.status == SessionStatus::NeedsApproval
+                                && old_status.as_ref() != Some(&SessionStatus::NeedsApproval)
+                            {
+                                notifier::notify_approval_needed(app_handle, &session);
+                            }
+
                             let _ = app_handle.emit("session-update", &session);
                         }
                         Err(e) => {

@@ -14,6 +14,7 @@ pub struct Settings {
     pub terminal_app: String,
     pub launch_at_login: bool,
     pub notifications_enabled: bool,
+    pub default_ide: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub claude_session_key: Option<String>,
 }
@@ -25,6 +26,7 @@ impl Default for Settings {
             terminal_app: "ghostty".to_string(),
             launch_at_login: true,
             notifications_enabled: true,
+            default_ide: "cursor".to_string(),
             claude_session_key: None,
         }
     }
