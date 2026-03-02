@@ -45,7 +45,7 @@ fn scan_directory(dir: &Path, store: &SessionStore, count: &mut usize, default_i
             if path
                 .file_name()
                 .and_then(|n| n.to_str())
-                .map_or(false, |n| n == "subagents" || n == "memory")
+                .is_some_and(|n| n == "subagents" || n == "memory")
             {
                 continue;
             }

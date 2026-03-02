@@ -88,6 +88,7 @@ pub fn save_alias(
 }
 
 /// セッションエイリアスを取得する
+#[allow(dead_code)]
 pub fn load_aliases(app: &AppHandle) -> std::collections::HashMap<String, String> {
     let store = app.store(STORE_FILE).unwrap_or_else(|e| {
         log::warn!("Failed to open store for aliases: {}", e);
