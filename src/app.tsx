@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { SessionList } from "./components/session-list/session-list";
 import { Settings } from "./components/settings/settings";
-import { useSessionStore } from "./hooks/use-session-store";
+import { StatusBar } from "./components/status-bar/status-bar";
 import { useSettingsStore } from "./hooks/use-settings";
 import { useTauriEvents } from "./hooks/use-tauri-events";
 
@@ -102,22 +102,8 @@ export function App() {
           color: "var(--text-secondary)",
         }}
       >
-        <StatusBarContent />
+        <StatusBar />
       </footer>
     </div>
-  );
-}
-
-function StatusBarContent() {
-  const sessions = useSessionStore((s) => s.sessions);
-  const total = sessions.size;
-  const active = Array.from(sessions.values()).filter(
-    (s) => s.status === "working" || s.status === "needs_approval",
-  ).length;
-
-  return (
-    <span>
-      {total} sessions &nbsp;|&nbsp; {active} active
-    </span>
   );
 }
