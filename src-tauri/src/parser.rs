@@ -337,7 +337,28 @@ fn extract_cwd(lines: &[String]) -> Option<String> {
     None
 }
 
-/// 最初の user メッセージからタイトルを抽出
+/// テキストがシステムタグ（IDE挿入のメタデータ等）かどうか判定
+fn is_system_tag(text: &str) -> bool {
+    let trimmed = text.trim();
+    trimmed.starts_with("<ide_opened_file>")
+        || trimmed.starts_with("<ide_selection>")
+        || trimmed.starts_with("<system-reminder>")
+        || trimmed.starts_with("<command-name>")
+        || trimmed.starts_with("<fast_mode_info>")
+}
+
+/// テキストを80文字以内に切り詰め、改行をスペースに置換
+fn truncate_title(text: &str) -> String {
+    let title = text.trim().replace('\n', " ");
+    let chars: Vec<char> = title.chars().collect();
+    if chars.len() > 80 {
+        format!("{}...", chars[..80].iter().collect::<String>())
+    } else {
+        title
+    }
+}
+
+/// 最初の user メッセージからタイトルを抽出（システムタグはスキップ）
 fn extract_title(lines: &[String]) -> String {
     for line in lines {
         if let Ok(entry) = serde_json::from_str::<Value>(line) {
@@ -350,28 +371,18 @@ fn extract_title(lines: &[String]) -> String {
                                 if block.get("type").and_then(|v| v.as_str()) == Some("text") {
                                     if let Some(text) = block.get("text").and_then(|v| v.as_str())
                                     {
-                                        let title = text.trim();
-                                        if title.len() > 80 {
-                                            return format!(
-                                                "{}...",
-                                                &title.chars().take(80).collect::<String>()
-                                            );
+                                        if !is_system_tag(text) && !text.trim().is_empty() {
+                                            return truncate_title(text);
                                         }
-                                        return title.to_string();
                                     }
                                 }
                             }
                         }
                         // content が文字列の場合
                         if let Some(text) = content.as_str() {
-                            let title = text.trim();
-                            if title.len() > 80 {
-                                return format!(
-                                    "{}...",
-                                    &title.chars().take(80).collect::<String>()
-                                );
+                            if !is_system_tag(text) && !text.trim().is_empty() {
+                                return truncate_title(text);
                             }
-                            return title.to_string();
                         }
                     }
                 }
