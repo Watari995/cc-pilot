@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useSessionStore } from "../../hooks/use-session-store";
+import { useSettingsStore } from "../../hooks/use-settings";
 import {
   formatDuration,
   formatTimeAgo,
@@ -30,7 +31,11 @@ export function SessionList() {
     filterOrder,
     setFilterOrder,
   } = useSessionStore();
+  const { settings } = useSettingsStore();
   const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const hiddenIde = settings.defaultIde === "cursor" ? "vscode" : "cursor";
+  const visibleFilterOrder = filterOrder.filter((env) => env !== hiddenIde);
   const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
   const filterRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
@@ -65,14 +70,17 @@ export function SessionList() {
       );
 
       if (overIndex !== -1 && overIndex !== draggingIndex) {
-        const newOrder = [...filterOrder];
-        const [removed] = newOrder.splice(draggingIndex, 1);
-        newOrder.splice(overIndex, 0, removed);
+        const newVisible = [...visibleFilterOrder];
+        const [removed] = newVisible.splice(draggingIndex, 1);
+        newVisible.splice(overIndex, 0, removed);
+        const hiddenPos = filterOrder.indexOf(hiddenIde);
+        const newOrder = [...newVisible];
+        newOrder.splice(hiddenPos, 0, hiddenIde);
         setFilterOrder(newOrder);
         setDraggingIndex(overIndex);
       }
     },
-    [draggingIndex, filterOrder, setFilterOrder],
+    [draggingIndex, visibleFilterOrder, filterOrder, hiddenIde, setFilterOrder],
   );
 
   const handlePointerUp = useCallback(() => {
@@ -90,7 +98,7 @@ export function SessionList() {
         >
           All
         </button>
-        {filterOrder.map((env, index) => (
+        {visibleFilterOrder.map((env, index) => (
           <button
             key={env}
             ref={(el) => { filterRefs.current[index] = el; }}

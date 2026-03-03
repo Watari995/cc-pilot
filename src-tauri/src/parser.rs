@@ -5,10 +5,15 @@ use std::io::{BufRead, BufReader, Seek, SeekFrom};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::process_detector::ProcessDetector;
 use crate::session::{ApprovalDetail, Environment, Session, SessionStatus};
 
 /// JSONL ファイルの末尾から情報を抽出してSessionを構築する
-pub fn parse_session_file(path: &Path, default_ide: &Environment) -> Result<Session> {
+pub fn parse_session_file(
+    path: &Path,
+    default_ide: &Environment,
+    process_detector: Option<&ProcessDetector>,
+) -> Result<Session> {
     let file = File::open(path).with_context(|| format!("Failed to open {}", path.display()))?;
     let metadata = file.metadata()?;
     let file_size = metadata.len();
@@ -207,6 +212,21 @@ pub fn parse_session_file(path: &Path, default_ide: &Environment) -> Result<Sess
         (project_path, project_name)
     };
 
+    // 環境判定: IDE タグ → ProcessDetector → Terminal フォールバック
+    let mut final_env = if env_from_head != Environment::Terminal {
+        env_from_head
+    } else {
+        detected_env
+    };
+
+    if final_env == Environment::Terminal {
+        if let Some(detector) = process_detector {
+            if let Some(detected) = detector.detect_environment(&session_id, &final_project_path) {
+                final_env = detected;
+            }
+        }
+    }
+
     Ok(Session {
         id: session_id,
         project_path: final_project_path,
@@ -214,11 +234,7 @@ pub fn parse_session_file(path: &Path, default_ide: &Environment) -> Result<Sess
         branch_name,
         title,
         alias: None,
-        environment: if env_from_head != Environment::Terminal {
-            env_from_head
-        } else {
-            detected_env
-        },
+        environment: final_env,
         status,
         model,
         input_tokens,

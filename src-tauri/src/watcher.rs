@@ -9,6 +9,7 @@ use tauri::{AppHandle, Emitter};
 
 use crate::notifier;
 use crate::parser::parse_session_file;
+use crate::process_detector::ProcessDetector;
 use crate::session::{Environment, Session, SessionStatus};
 use crate::settings;
 
@@ -16,7 +17,11 @@ use crate::settings;
 pub type SessionStore = Arc<Mutex<HashMap<String, Session>>>;
 
 /// 初回起動時に ~/.claude/projects/ を一括スキャンしてセッション一覧を構築
-pub fn initial_scan(store: &SessionStore, default_ide: &Environment) -> Result<()> {
+pub fn initial_scan(
+    store: &SessionStore,
+    default_ide: &Environment,
+    detector: &ProcessDetector,
+) -> Result<()> {
     let projects_dir = get_projects_dir()?;
     if !projects_dir.exists() {
         warn!(
@@ -29,14 +34,20 @@ pub fn initial_scan(store: &SessionStore, default_ide: &Environment) -> Result<(
     info!("Scanning sessions in: {}", projects_dir.display());
     let mut count = 0;
 
-    scan_directory(&projects_dir, store, &mut count, default_ide)?;
+    scan_directory(&projects_dir, store, &mut count, default_ide, detector)?;
 
     info!("Initial scan complete: {} sessions found", count);
     Ok(())
 }
 
 /// ディレクトリを再帰的にスキャンして .jsonl ファイルをパース
-fn scan_directory(dir: &Path, store: &SessionStore, count: &mut usize, default_ide: &Environment) -> Result<()> {
+fn scan_directory(
+    dir: &Path,
+    store: &SessionStore,
+    count: &mut usize,
+    default_ide: &Environment,
+    detector: &ProcessDetector,
+) -> Result<()> {
     let entries = std::fs::read_dir(dir)?;
     for entry in entries.flatten() {
         let path = entry.path();
@@ -49,9 +60,9 @@ fn scan_directory(dir: &Path, store: &SessionStore, count: &mut usize, default_i
             {
                 continue;
             }
-            scan_directory(&path, store, count, default_ide)?;
+            scan_directory(&path, store, count, default_ide, detector)?;
         } else if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
-            match parse_session_file(&path, default_ide) {
+            match parse_session_file(&path, default_ide, Some(detector)) {
                 Ok(session) => {
                     let mut sessions = store.lock().unwrap();
                     sessions.insert(session.id.clone(), session);
@@ -67,7 +78,11 @@ fn scan_directory(dir: &Path, store: &SessionStore, count: &mut usize, default_i
 }
 
 /// ファイル監視を開始する（別スレッドで実行）
-pub fn start_watching(app_handle: AppHandle, store: SessionStore) -> Result<()> {
+pub fn start_watching(
+    app_handle: AppHandle,
+    store: SessionStore,
+    detector: Arc<ProcessDetector>,
+) -> Result<()> {
     let projects_dir = get_projects_dir()?;
     if !projects_dir.exists() {
         warn!(
@@ -78,7 +93,7 @@ pub fn start_watching(app_handle: AppHandle, store: SessionStore) -> Result<()> 
     }
 
     std::thread::spawn(move || {
-        if let Err(e) = watch_loop(&app_handle, &store, &projects_dir) {
+        if let Err(e) = watch_loop(&app_handle, &store, &projects_dir, &detector) {
             error!("File watcher error: {}", e);
         }
     });
@@ -87,7 +102,12 @@ pub fn start_watching(app_handle: AppHandle, store: SessionStore) -> Result<()> 
 }
 
 /// 監視ループ本体
-fn watch_loop(app_handle: &AppHandle, store: &SessionStore, projects_dir: &Path) -> Result<()> {
+fn watch_loop(
+    app_handle: &AppHandle,
+    store: &SessionStore,
+    projects_dir: &Path,
+    detector: &ProcessDetector,
+) -> Result<()> {
     let (tx, rx) = mpsc::channel::<notify::Result<Event>>();
 
     let mut watcher = RecommendedWatcher::new(tx, Config::default())?;
@@ -142,7 +162,7 @@ fn watch_loop(app_handle: &AppHandle, store: &SessionStore, projects_dir: &Path)
                     let ide = Environment::from_ide_str(
                         &settings::load_settings(app_handle).default_ide,
                     );
-                    match parse_session_file(path, &ide) {
+                    match parse_session_file(path, &ide, Some(detector)) {
                         Ok(session) => {
                             let mut sessions = store.lock().unwrap();
                             let old_status = sessions

@@ -34,8 +34,9 @@ fn launch_editor(cmd: &str, project_path: &str) -> Result<(), String> {
 // ─── Desktop (Claude Desktop deep link) ────────────────────────
 
 fn launch_desktop(session: &Session) -> Result<(), String> {
+    // Desktop ディープリンクは local_ プレフィックス付きのセッション ID を期待する
     let url = format!(
-        "claude://claude.ai/claude-code-desktop/{}",
+        "claude://claude.ai/claude-code-desktop/local_{}",
         session.id
     );
     Command::new("open")

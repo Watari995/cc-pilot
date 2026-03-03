@@ -1,6 +1,7 @@
 mod launcher;
 mod notifier;
 mod parser;
+mod process_detector;
 mod session;
 mod settings;
 mod tray;
@@ -9,6 +10,8 @@ mod watcher;
 use session::{Environment, Session};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+
+use process_detector::ProcessDetector;
 
 /// 全セッション一覧を取得
 #[tauri::command]
@@ -92,13 +95,17 @@ pub fn run() {
             let s = settings::load_settings(&handle);
             let default_ide = Environment::from_ide_str(&s.default_ide);
 
+            // プロセス検出器を初期化
+            let detector = Arc::new(ProcessDetector::new());
+            detector.refresh();
+
             // 初回スキャン（setup 内で実行して設定にアクセスできるようにする）
-            if let Err(e) = watcher::initial_scan(&session_store, &default_ide) {
+            if let Err(e) = watcher::initial_scan(&session_store, &default_ide, &detector) {
                 log::error!("Initial scan failed: {}", e);
             }
 
             // ファイル監視を開始
-            if let Err(e) = watcher::start_watching(handle, session_store.clone()) {
+            if let Err(e) = watcher::start_watching(handle, session_store.clone(), detector) {
                 log::error!("Failed to start file watcher: {}", e);
             }
             Ok(())
