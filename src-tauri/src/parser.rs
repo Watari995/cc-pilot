@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use serde_json::Value;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Seek, SeekFrom};
+use std::io::{BufReader, Seek, SeekFrom};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -392,7 +392,7 @@ fn extract_title(lines: &[String]) -> String {
     "(no title)".to_string()
 }
 
-/// ファイル末尾から指定行数を読み取り
+/// ファイル末尾から指定行数を読み取り（非UTF-8バイトは置換して読み飛ばす）
 fn read_tail_lines(file: &File, file_size: u64, max_lines: usize) -> Result<Vec<String>> {
     // 末尾 64KB をバッファとして読み取り
     let buf_size = std::cmp::min(file_size, 64 * 1024) as usize;
@@ -400,21 +400,23 @@ fn read_tail_lines(file: &File, file_size: u64, max_lines: usize) -> Result<Vec<
     let start_pos = file_size.saturating_sub(buf_size as u64);
     reader.seek(SeekFrom::Start(start_pos))?;
 
+    let mut raw = Vec::with_capacity(buf_size);
+    std::io::Read::read_to_end(&mut reader, &mut raw)?;
+    let text = String::from_utf8_lossy(&raw);
+
     let mut lines: Vec<String> = Vec::new();
-    let mut buf = String::new();
+    let mut iter = text.lines();
 
     // 途中から読み始めた場合、最初の行は不完全なので捨てる
     if start_pos > 0 {
-        reader.read_line(&mut buf)?;
-        buf.clear();
+        iter.next();
     }
 
-    while reader.read_line(&mut buf)? > 0 {
-        let trimmed = buf.trim().to_string();
+    for line in iter {
+        let trimmed = line.trim();
         if !trimmed.is_empty() {
-            lines.push(trimmed);
+            lines.push(trimmed.to_string());
         }
-        buf.clear();
     }
 
     // 末尾 max_lines 行のみ返す
@@ -425,17 +427,23 @@ fn read_tail_lines(file: &File, file_size: u64, max_lines: usize) -> Result<Vec<
     }
 }
 
-/// ファイル先頭から指定行数を読み取り
+/// ファイル先頭から指定行数を読み取り（非UTF-8バイトは置換して読み飛ばす）
 fn read_head_lines(path: &Path, max_lines: usize) -> Result<Vec<String>> {
     let file = File::open(path)?;
-    let reader = BufReader::new(file);
+    let mut reader = BufReader::new(file);
+    let mut raw = Vec::new();
+    // 先頭 32KB を読み取れば十分
+    let mut buf = vec![0u8; 32 * 1024];
+    let n = std::io::Read::read(&mut reader, &mut buf)?;
+    raw.extend_from_slice(&buf[..n]);
+
+    let text = String::from_utf8_lossy(&raw);
     let mut lines = Vec::new();
 
-    for line in reader.lines().take(max_lines) {
-        let line = line?;
-        let trimmed = line.trim().to_string();
+    for line in text.lines().take(max_lines) {
+        let trimmed = line.trim();
         if !trimmed.is_empty() {
-            lines.push(trimmed);
+            lines.push(trimmed.to_string());
         }
     }
 

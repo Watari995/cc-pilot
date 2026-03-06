@@ -6,6 +6,7 @@ mod session;
 mod settings;
 mod tray;
 mod watcher;
+mod web_client;
 
 use session::{Environment, Session};
 use std::collections::HashMap;
@@ -105,8 +106,15 @@ pub fn run() {
             }
 
             // ファイル監視を開始
-            if let Err(e) = watcher::start_watching(handle, session_store.clone(), detector) {
+            if let Err(e) =
+                watcher::start_watching(handle.clone(), session_store.clone(), detector)
+            {
                 log::error!("Failed to start file watcher: {}", e);
+            }
+
+            // Web セッション監視を開始
+            if let Err(e) = web_client::start_polling(handle, session_store.clone()) {
+                log::error!("Failed to start web client polling: {}", e);
             }
             Ok(())
         })

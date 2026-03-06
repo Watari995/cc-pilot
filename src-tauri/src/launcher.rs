@@ -49,7 +49,10 @@ fn launch_desktop(session: &Session) -> Result<(), String> {
 // ─── Web (claude.ai) ───────────────────────────────────────────
 
 fn launch_web(session: &Session) -> Result<(), String> {
-    let url = format!("https://claude.ai/chat/{}", session.id);
+    // session.id は "web_{session_id}" 形式なのでプレフィックスを除去
+    let raw_id = session.id.strip_prefix("web_").unwrap_or(&session.id);
+    // Claude Code Web セッション: /code/{session_id}
+    let url = format!("https://claude.ai/code/{}", raw_id);
     Command::new("open")
         .arg(&url)
         .spawn()
